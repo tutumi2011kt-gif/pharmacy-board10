@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>薬局窓口ダッシュボード（リアルタイム同期 + 常時サウンド通知）</title>
+<style>
+  :root{--bg:#000;--fg:#fff;--accent:#4ade80;--error:#ef4444;--muted:#9ca3af;--card:#111827;--btn:#1f2937;--good:#22c55e;--gold:#d4af37}
+  [data-theme="light"]{--bg:#fff;--fg:#0f172a;--accent:#2563eb;--error:#b91c1c;--muted:#64748b;--card:#f1f5f9;--btn:#e2e8f0;--good:#16a34a}
+  *{box-sizing:border-box;font-family: ui-rounded, ui-sans-serif, system-ui, -apple-system,"Hiragino Kaku Gothic ProN","Meiryo","Segoe UI",Roboto,"Noto Sans JP",sans-serif}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);-webkit-tap-highlight-color:transparent}
+  .shell{display:grid;grid-template-rows:auto 1fr;height:100vh;max-width:1680px;margin:0 auto}
+  header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 12px;flex-wrap:wrap}
+  header h1{font-size:clamp(16px,1.6vw,22px);margin:0}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .pill{display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,.12);padding:4px 8px;border-radius:999px;background:var(--btn);font-size:12px;color:var(--muted)}
+  .layout{display:grid;grid-template-columns:300px 1fr;gap:10px;padding:6px 10px 10px}
+  @media (max-width:1100px){.layout{grid-template-columns:1fr}}
+  #sidebar{display:flex;flex-direction:column;gap:8px}
+  .card{background:var(--card);border-radius:14px;padding:10px;border:1px solid rgba(255,255,255,0.06)}
+  .card h2{font-size:13px;margin:0 0 6px 0;color:var(--muted)}
+  label{display:block;font-size:12px;margin:4px 0 2px 0;color:var(--muted)}
+  input[type="text"],input[type="number"],input[type="range"]{width:100%;padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:transparent;color:var(--fg);font-size:16px;letter-spacing:.06em}
+  .btn{background:var(--btn);border:1px solid rgba(255,255,255,.12);color:var(--fg);padding:10px 14px;border-radius:12px;cursor:pointer;font-weight:700;font-size:14px;touch-action:manipulation}
+  .btn.primary{background:var(--accent);color:#000;border:none}
+  .btn.good{background:var(--good);color:#fff;border:none}
+  .btn.danger{background:var(--error);color:#fff;border:none}
+  .seg{display:flex;border-radius:10px;overflow:hidden;border:1px solid rgba(255,255,255,.12)}
+  .seg button{flex:1;padding:10px 12px;background:transparent;border:none;color:var(--fg);cursor:pointer;font-size:14px;touch-action:manipulation}
+  .seg button.active{background:var(--btn);font-weight:700;outline:2px solid var(--accent)}
+  .error{color:var(--error);font-weight:700;font-size:12px;min-height:1.2em}
+  .help{font-size:11px;color:var(--muted)}
+  #center{display:flex;flex-direction:column;gap:clamp(8px,2.2vw,20px);align-items:stretch;justify-content:flex-start;min-height:0}
+  .panel{background:transparent;padding:4px 8px}
+  .headline{font-size:clamp(18px,2.2vw,28px);font-weight:800;letter-spacing:.02em;margin:0 0 4px 0;text-align:left;padding-left:6px;color:var(--muted)}
+  .patient-row{display:grid;grid-template-columns:repeat(3,minmax(200px,1fr));gap:clamp(8px,1.4vw,16px)}
+  @media (max-width:1200px){.patient-row{grid-template-columns:repeat(2,minmax(200px,1fr))}}
+  @media (max-width:750px){.patient-row{grid-template-columns:1fr}}
+  .patient-card{position:relative;background:var(--card);border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:10px 12px;min-height:120px;text-align:center;outline:none;color:var(--fg)}
+  .patient-card:focus{outline:2px solid var(--accent)}
+  .delbtn{position:absolute;top:6px;right:6px;width:32px;height:32px;border-radius:999px;border:1px solid rgba(255,255,255,.15);background:var(--btn);color:var(--fg);font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1}
+  .big-number{font-variant-numeric:tabular-nums;line-height:1;font-weight:900;letter-spacing:.06em;font-size:clamp(64px,9vw,160px);text-shadow:0 2px 0 rgba(0,0,0,.2)}
+  .sub-number{font-size:clamp(24px,4.6vw,72px);font-weight:800;font-variant-numeric:tabular-nums;line-height:1.05}
+  .card-number{font-size:clamp(20px,3.6vw,44px);font-weight:900;letter-spacing:.04em;margin-top:4px;line-height:1.05}
+  .meta{font-size:clamp(14px,2.2vw,22px);color:var(--muted)}
+  .flash10{animation:pulseTen 1s ease-in-out 10,glowTen 1s ease-in-out 10,colorSwap 1s steps(1,end) 10;will-change:transform,opacity,box-shadow,color}
+  @keyframes pulseTen{0%{transform:scale(1);opacity:1}50%{transform:scale(1.18);opacity:.75}100%{transform:scale(1);opacity:1}}
+  @keyframes glowTen{0%{box-shadow:0 0 0 rgba(255,255,255,0)}50%{box-shadow:0 0 28px rgba(255,255,255,.30)}100%{box-shadow:0 0 0 rgba(255,255,255,0)}}
+  @keyframes colorSwap{0%{color:#fff}100%{color:var(--gold)}}
+</style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <h1>薬局窓口ダッシュボード</h1>
+      <div class="row">
+        <span class="pill"><span id="today"></span></span>
+        <span class="pill"><span id="now"></span></span>
+        <label class="pill">room: <input id="roomInput" type="text" placeholder="room id" style="width:120px;background:transparent;color:inherit;border:none;outline:none"/></label>
+        <button id="btnJoin" class="btn">入室/変更</button>
+        <button id="btnUnlock" class="btn primary">音を有効化</button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside id="sidebar">
+        <div class="card">
+          <h2>外来番号（急ぎ）</h2>
+          <label for="inNum">番号 1〜3桁</label>
+          <input id="inNum" type="text" inputmode="numeric" maxlength="3" placeholder="---" />
+          <div class="row" style="margin-top:6px;">
+            <button id="btnNumConfirm" class="btn primary">追加</button>
+            <button id="btnNumClear" class="btn">全クリア</button>
+          </div>
+          <div id="errNum" class="error"></div>
+          <div class="help">最大3件まで横並び表示。4件目は古いものから消えます。</div>
+        </div>
+
+        <div class="card">
+          <h2>レナリドミド</h2>
+          <label for="inLenCount">残数（0〜10）</label>
+          <input id="inLenCount" type="number" min="0" max="10" step="1" placeholder="例: 4" />
+          <label for="inLenNum">外来番号 1〜3桁</label>
+          <input id="inLenNum" type="text" inputmode="numeric" maxlength="3" placeholder="---" />
+          <div class="row" style="margin-top:6px;">
+            <button id="btnLenConfirm" class="btn good">追加/更新</button>
+            <button id="btnLenClear" class="btn">全クリア</button>
+          </div>
+          <div id="errLen" class="error"></div>
+          <div class="help">同じ外来番号は上書き更新。最大3件まで表示。</div>
+        </div>
+
+        <div class="card">
+          <h2>注射用水</h2>
+          <label>受け渡し</label>
+          <div class="seg" role="group" aria-label="受け渡し場所">
+            <button id="inInjUp">上で渡す</button>
+            <button id="inInjDown">下で渡す</button>
+          </div>
+          <label for="inInjNum">外来番号 1〜3桁</label>
+          <input id="inInjNum" type="text" inputmode="numeric" maxlength="3" placeholder="---" />
+          <div class="row" style="margin-top:6px;">
+            <button id="btnInjConfirm" class="btn good">追加/更新</button>
+            <button id="btnInjClear" class="btn">全クリア</button>
+          </div>
+          <div id="errInj" class="error"></div>
+          <div class="help">同じ外来番号は上書き更新。最大3件まで表示。</div>
+        </div>
+
+        <div class="card">
+          <h2>設定</h2>
+          <div class="row">
+            <span class="help">プロファイル</span>
+            <div class="seg">
+              <button class="tog" data-key="soundProfile" data-val="standard">標準</button>
+              <button class="tog" data-key="soundProfile" data-val="noisy">騒音</button>
+              <button class="tog" data-key="soundProfile" data-val="max">最大</button>
+            </div>
+          </div>
+          <div class="row">
+            <span class="help">テーマ</span>
+            <div class="seg">
+              <button class="tog" data-key="theme" data-val="dark">黒</button>
+              <button class="tog" data-key="theme" data-val="light">白</button>
+            </div>
+          </div>
+          <div class="row">
+            <span class="help">サイズ</span>
+            <div class="seg">
+              <button class="tog" data-key="fontScale" data-val="large">大</button>
+              <button class="tog" data-key="fontScale" data-val="xlarge">特大</button>
+            </div>
+          </div>
+          <div class="row">
+            <span class="help">ゼロ埋め</span>
+            <div class="seg">
+              <button class="tog" data-key="autoPad" data-val="true">ON</button>
+              <button class="tog" data-key="autoPad" data-val="false">OFF</button>
+            </div>
+          </div>
+          <div class="row">
+            <span class="help">音</span>
+            <div class="seg">
+              <button class="tog" data-key="soundType" data-val="beep">ビープ</button>
+              <button class="tog" data-key="soundType" data-val="chime">チャイム</button>
+              <button class="tog" data-key="soundType" data-val="school">長チャイム(約10秒)</button>
+              <button class="tog" data-key="soundType" data-val="mute">ミュート</button>
+            </div>
+            <button id="btnTestSound" class="btn">試聴</button>
+          </div>
+          <div class="row" style="width:100%">
+            <label for="vol" style="flex:1">音量</label>
+            <input id="vol" type="range" min="0" max="100" step="1" style="flex:1" />
+            <span class="help">※端末の本体音量も最大に</span>
+          </div>
+          <div class="row">
+            <span class="help">同一値の連続確定</span>
+            <div class="seg">
+              <button class="tog" data-key="soundOnRepeat" data-val="true">音あり</button>
+              <button class="tog" data-key="soundOnRepeat" data-val="false">音なし</button>
+            </div>
+          </div>
+          <div class="row">
+            <span class="help">クリア時の音</span>
+            <div class="seg">
+              <button class="tog" data-key="soundOnClear" data-val="true">音あり</button>
+              <button class="tog" data-key="soundOnClear" data-val="false">音なし</button>
+            </div>
+          </div>
+          <div class="row">
+            <span class="help">通知ポリシー</span>
+            <div class="seg">
+              <button class="tog" data-key="notifyAllChanges" data-val="true">すべて鳴らす</button>
+              <button class="tog" data-key="notifyAllChanges" data-val="false">一部のみ</button>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <main id="center">
+        <section class="panel" id="panel-urgent">
+          <div class="headline">急ぎの外来番号</div>
+          <div id="rowUrgent" class="patient-row" aria-live="polite"></div>
+        </section>
+        <section class="panel" id="panel-len">
+          <div class="headline">レナリドミド</div>
+          <div id="rowLen" class="patient-row" aria-live="polite"></div>
+        </section>
+        <section class="panel" id="panel-inj">
+          <div class="headline">注射用水</div>
+          <div id="rowInj" class="patient-row" aria-live="polite"></div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+<!-- Firebase v9 modular CDN -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getDatabase, ref, onValue, update, get } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+/*** 1) ←ここにあなたの Firebase 設定を貼り付けてください ***/
+const firebaseConfig = {
+  apiKey: " "AIzaSyAzuxtkicdsVL8JofgCXZI95uoXNUQf8Hk",
+  authDomain: "pharmacy-board-5ec00.firebaseapp.com",
+  databaseURL: "https://pharmacy-board-5ec00-default-rtdb.firebaseio.com",
+  projectId: "pharmacy-board-5ec00",
+  appId: "1:485691074297:web:35122c2671b7118c086428"
+};
+/*** ここまで ***/
+
+/* ====== App state defaults ====== */
+const APP_CONFIG = {
+  title: "薬局窓口ダッシュボード",
+  defaultTheme: "dark",
+  defaultFontScale: "xlarge",
+  defaultSoundType: "school",
+  defaultVolume: 100,
+  autoPad: true,
+  soundOnRepeat: false,
+  soundOnClear: false,
+  soundProfile: "noisy",           // standard | noisy | max
+  notifyAllChanges: true,          // すべて鳴らす（既定 ON）
+  lenalidomide: { max: 10 },
+  maxSlots: 3
+};
+const LS_KEY = "pharmacyBoardV5_rt";
+const seenOps = new Set();
+const clientId = (()=>{
+  const k="pb_clientId";
+  let v=localStorage.getItem(k);
+  if(!v){
+    v = [...crypto.getRandomValues(new Uint8Array(16))].map(x=>x.toString(16).padStart(2,"0")).join("");
+    localStorage.setItem(k,v);
+  }
+  return v;
+})();
+
+/* ====== Helpers ====== */
+const $=q=>document.querySelector(q);
+const $$=q=>document.querySelectorAll(q);
+function todayStr(){ const dt=new Date(); return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`; }
+function loadState(){ try{return JSON.parse(localStorage.getItem(LS_KEY))||{}}catch(e){return {}} }
+function saveState(s){ localStorage.setItem(LS_KEY, JSON.stringify(s)); }
+function ensureState(){
+  const s = loadState(); const t = todayStr();
+  if(s.date !== t){
+    return { date: t, settings: {
+      theme: APP_CONFIG.defaultTheme, fontScale: APP_CONFIG.defaultFontScale,
+      soundType: APP_CONFIG.defaultSoundType, volume: APP_CONFIG.defaultVolume,
+      soundOnRepeat: APP_CONFIG.soundOnRepeat, soundOnClear: APP_CONFIG.soundOnClear,
+      soundProfile: APP_CONFIG.soundProfile, notifyAllChanges: APP_CONFIG.notifyAllChanges,
+      autoPad: APP_CONFIG.autoPad
+    }, urgentNumbers: [], lenPatients: [], injPatients: [] };
+  }
+  s.settings ||= {};
+  const d = {
+    theme: APP_CONFIG.defaultTheme, fontScale: APP_CONFIG.defaultFontScale,
+    soundType: APP_CONFIG.defaultSoundType, volume: APP_CONFIG.defaultVolume,
+    soundOnRepeat: APP_CONFIG.soundOnRepeat, soundOnClear: APP_CONFIG.soundOnClear,
+    soundProfile: APP_CONFIG.soundProfile, notifyAllChanges: APP_CONFIG.notifyAllChanges,
+    autoPad: APP_CONFIG.autoPad
+  };
+  for(const k in d){ if(typeof s.settings[k]==="undefined") s.settings[k]=d[k]; }
+  s.urgentNumbers ||= []; s.lenPatients ||= []; s.injPatients ||= []; s.date = t; return s;
+}
+let STATE = ensureState(); saveState(STATE);
+
+function normalizeNumber(raw,{autoPad=true}={}){
+  let v = String(raw??"").replace(/[^\d]/g,"").slice(0,3);
+  if(autoPad && v.length>0) v = v.padStart(3,"0");
+  return v.length? v : null;
+}
+function validateDigits(s,min=1,max=3){ const m=String(s??"").match(/^\d+$/); return !!m && s.length>=min && s.length<=max; }
+
+/* ====== Dual-event helper ====== */
+let __lastAction={key:"",at:0};
+function shouldRun(key){
+  const now = performance?.now ? performance.now() : Date.now();
+  if(__lastAction.key===key && (now-__lastAction.at)<300) return false;
+  __lastAction={key,at:now}; return true;
+}
+function addDual(el, key, fn){
+  if(!el) return;
+  el.addEventListener("click", e=>{ if(shouldRun(key)) fn(e); });
+  el.addEventListener("pointerup", e=>{ if(e.pointerType==="mouse") return; if(shouldRun(key)) fn(e); }, {passive:true});
+}
+
+/* ====== Time ====== */
+function updateClock(){ const dt=new Date(); $("#today").textContent=`${dt.getFullYear()}/${String(dt.getMonth()+1).padStart(2,"0")}/${String(dt.getDate()).padStart(2,"0")}`; $("#now").textContent=`${String(dt.getHours()).padStart(2,"0")}:${String(dt.getMinutes()).padStart(2,"0")}`; }
+updateClock(); setInterval(updateClock, 60*1000);
+
+/* ====== Audio ====== */
+let audioCtx=null, masterGain=null, comp=null;
+function initAudio(){try{
+  if(!audioCtx){
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    audioCtx = new Ctx();
+    masterGain = audioCtx.createGain(); masterGain.gain.value=(STATE.settings.volume||100)/100;
+    comp = audioCtx.createDynamicsCompressor();
+    comp.threshold.setValueAtTime(-24,audioCtx.currentTime);
+    comp.knee.setValueAtTime(30,audioCtx.currentTime);
+    comp.ratio.setValueAtTime(12,audioCtx.currentTime);
+    comp.attack.setValueAtTime(0.003,audioCtx.currentTime);
+    comp.release.setValueAtTime(0.250,audioCtx.currentTime);
+    comp.connect(masterGain); masterGain.connect(audioCtx.destination);
+    playBeep(0.07,900);
+  }else if(audioCtx.state==="suspended"){ audioCtx.resume(); }
+  $("#btnUnlock").style.display="none";
+}catch(e){ console.warn("Audio init failed:", e) }}
+document.addEventListener("pointerdown", function once(){ initAudio(); document.removeEventListener("pointerdown", once) }, {passive:true});
+
+function setVolumeFromSlider(v){ if(masterGain) masterGain.gain.value=Math.max(0,Math.min(1,v/100)); STATE.settings.volume=v; saveState(STATE); }
+
+function osc(freq,type){ const o=audioCtx.createOscillator(); o.type=type||"sine"; o.frequency.value=freq; return o; }
+function makeEnvGain(t0,dur,peak){ const g=audioCtx.createGain(); g.gain.setValueAtTime(0.0001,t0); g.gain.exponentialRampToValueAtTime(peak||1.0,t0+0.01); g.gain.exponentialRampToValueAtTime(0.0001,t0+dur); return g; }
+function outNode(){ return comp||masterGain||audioCtx.destination; }
+function playTone(freq,sec,delay){ const o=osc(freq,"sine"); const t0=(audioCtx?.currentTime||0)+(delay||0); const g=makeEnvGain(t0,sec,1.0); o.connect(g); g.connect(outNode()); o.start(t0); o.stop(t0+sec); }
+function playBeep(sec=0.12,freq=880){ if(!audioCtx || STATE.settings.soundType==="mute") return; const o=osc(freq,"square"); const g=audioCtx.createGain(); g.gain.setValueAtTime(1.0,audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.0001,audioCtx.currentTime+sec); o.connect(g); g.connect(outNode()); o.start(); o.stop(audioCtx.currentTime+sec); }
+function playChime(){ if(!audioCtx || STATE.settings.soundType==="mute") return; playTone(784,0.12,0); playTone(1046.5,0.18,0.12); }
+function playSchoolChimeLong(){
+  if(!audioCtx || STATE.settings.soundType==="mute") return;
+  let t=audioCtx.currentTime;
+  const seq=[{f:784,d:0.30,dl:0.00,type:"triangle"},{f:659,d:0.30,dl:0.32,type:"triangle"},{f:880,d:0.30,dl:0.64,type:"triangle"},{f:659,d:0.60,dl:0.96,type:"triangle"}];
+  const repeats=6;
+  for(let r=0;r<repeats;r++){
+    for(const s of seq){
+      const o=osc(s.f,s.type), g=makeEnvGain(t+s.dl,s.d,1.2);
+      const o2=osc(s.f*1.0035,"triangle"), g2=makeEnvGain(t+s.dl,s.d,0.8);
+      o.connect(g); g.connect(outNode()); o2.connect(g2); g2.connect(outNode());
+      o.start(t+s.dl); o.stop(t+s.dl+s.d); o2.start(t+s.dl); o2.stop(t+s.dl+s.d);
+    }
+    t+=1.6;
+  }
+}
+function soundForEvent(eventType){
+  const profile = STATE.settings.soundProfile || "noisy";
+  if(profile==="max"){ return playSchoolChimeLong; }
+  if(profile==="noisy"){
+    if(eventType.startsWith("urgent:add") || eventType==="urgent:clear"){ return playSchoolChimeLong; }
+    if(eventType.includes("clear")) return playChime;
+    return playBeep;
+  }
+  if(eventType.includes("clear")) return playChime;
+  return playBeep;
+}
+function playNotify(eventType){
+  if(!STATE.settings.notifyAllChanges) return;
+  if(!audioCtx) return;
+  if(STATE.settings.soundType==="mute") return;
+  const fn = soundForEvent(eventType);
+  fn();
+}
+
+/* ====== UI pieces ====== */
+const inNum=$("#inNum"), btnNumConfirm=$("#btnNumConfirm"), btnNumClear=$("#btnNumClear"), errNum=$("#errNum");
+const inLenCount=$("#inLenCount"), inLenNum=$("#inLenNum"), btnLenConfirm=$("#btnLenConfirm"), btnLenClear=$("#btnLenClear"), errLen=$("#errLen");
+const inInjUp=$("#inInjUp"), inInjDown=$("#inInjDown"), inInjNum=$("#inInjNum"), btnInjConfirm=$("#btnInjConfirm"), btnInjClear=$("#btnInjClear"), errInj=$("#errInj");
+const rowUrgent=$("#rowUrgent"), rowLen=$("#rowLen"), rowInj=$("#rowInj");
+const btnUnlock=$("#btnUnlock"), btnTestSound=$("#btnTestSound");
+const roomInput=$("#roomInput"), btnJoin=$("#btnJoin");
+
+function flashCard(el){
+  if(!el) return;
+  el.classList.remove("flash10"); void el.offsetWidth;
+  el.classList.add("flash10");
+  setTimeout(()=> el.classList.remove("flash10"), 10000);
+}
+function renderRow(container, items, builder){
+  container.innerHTML="";
+  if(!items || items.length===0){
+    const empty=document.createElement("div"); empty.className="patient-card"; empty.innerHTML='<div class="meta">—</div>'; container.appendChild(empty); return;
+  }
+  items.forEach((it,idx)=> container.appendChild(builder(it,idx)));
+}
+function buildUrgentCard(num, idx){
+  const div=document.createElement("div"); div.className="patient-card"; div.dataset.number=num; div.tabIndex=0;
+  const del=document.createElement("button"); del.className="delbtn"; del.setAttribute("aria-label",`外来番号 ${num} を削除`); del.textContent="×";
+  addDual(del, "delUrgent:"+idx, ()=> publishChange({ urgentNumbers: STATE.urgentNumbers.filter((_,i)=>i!==idx) }, "urgent:delete"));
+  const span=document.createElement("div"); span.className="big-number"; span.textContent=num;
+  div.appendChild(del); div.appendChild(span);
+  div.addEventListener("keydown", e=>{ if(e.key==="Delete"||e.key==="Backspace"){ publishChange({ urgentNumbers: STATE.urgentNumbers.filter((_,i)=>i!==idx) }, "urgent:delete"); }});
+  return div;
+}
+function buildLenCard(p){
+  const div=document.createElement("div"); div.className="patient-card"; div.dataset.number=p.number; div.tabIndex=0;
+  const del=document.createElement("button"); del.className="delbtn"; del.setAttribute("aria-label",`レナリドミド 外来番号 ${p.number} を削除`); del.textContent="×";
+  addDual(del, "delLen:"+p.number, ()=> publishChange({ lenPatients: STATE.lenPatients.filter(x=>x.number!==p.number) }, "len:delete"));
+  const count=document.createElement("div"); count.className="sub-number"; count.textContent=`残：${p.count}錠`;
+  const number=document.createElement("div"); number.className="card-number"; number.textContent=`外来番号 ${p.number}`;
+  div.appendChild(del); div.appendChild(count); div.appendChild(number);
+  div.addEventListener("keydown", e=>{ if(e.key==="Delete"||e.key==="Backspace"){ publishChange({ lenPatients: STATE.lenPatients.filter(x=>x.number!==p.number) }, "len:delete"); }});
+  return div;
+}
+function buildInjCard(p){
+  const div=document.createElement("div"); div.className="patient-card"; div.dataset.number=p.number; div.tabIndex=0;
+  const del=document.createElement("button"); del.className="delbtn"; del.setAttribute("aria-label",`注射用水 外来番号 ${p.number} を削除`); del.textContent="×";
+  addDual(del, "delInj:"+p.number, ()=> publishChange({ injPatients: STATE.injPatients.filter(x=>x.number!==p.number) }, "inj:delete"));
+  const place=document.createElement("div"); place.className="sub-number"; place.textContent=(p.place==="up")?"上で渡す":"下で渡す";
+  const number=document.createElement("div"); number.className="card-number"; number.textContent=`外来番号 ${p.number}`;
+  div.appendChild(del); div.appendChild(place); div.appendChild(number);
+  div.addEventListener("keydown", e=>{ if(e.key==="Delete"||e.key==="Backspace"){ publishChange({ injPatients: STATE.injPatients.filter(x=>x.number!==p.number) }, "inj:delete"); }});
+  return div;
+}
+function renderCenter({flashUrgent=false, flashLenNum=null, flashInjNum=null}={}){
+  renderRow(rowUrgent, STATE.urgentNumbers, buildUrgentCard);
+  renderRow(rowLen, STATE.lenPatients, buildLenCard);
+  renderRow(rowInj, STATE.injPatients, buildInjCard);
+  if(flashUrgent){ const last=rowUrgent.querySelector('.patient-card:last-child'); flashCard(last); }
+  if(flashLenNum){ const el=[...rowLen.querySelectorAll('.patient-card')].find(x=>x.dataset.number===flashLenNum); flashCard(el); }
+  if(flashInjNum){ const el=[...rowInj.querySelectorAll('.patient-card')].find(x=>x.dataset.number===flashInjNum); flashCard(el); }
+}
+function applySettings(){
+  document.documentElement.setAttribute("data-theme", STATE.settings.theme);
+  document.body.dataset.font = STATE.settings.fontScale;
+  $("#vol").value = STATE.settings.volume||100;
+}
+
+/* ====== Local mutations (publish via Firebase) ====== */
+function pushWithCap(arr, val, cap){ arr.push(val); while(arr.length>cap) arr.shift(); }
+
+function publishChange(patch, eventType){
+  const newState = JSON.parse(JSON.stringify(STATE));
+  if(patch.urgentNumbers) newState.urgentNumbers = patch.urgentNumbers;
+  if(patch.lenPatients)   newState.lenPatients   = patch.lenPatients;
+  if(patch.injPatients)   newState.injPatients   = patch.injPatients;
+  if(patch.settings)      newState.settings      = Object.assign({}, newState.settings, patch.settings);
+  newState.date = todayStr();
+
+  // Apply locally
+  STATE = newState; saveState(STATE); renderCenter();
+  // Play locally once
+  const opId = crypto.randomUUID();
+  seenOps.add(opId);
+  playNotify(eventType);
+
+  // Publish
+  if(!ROOM_REF){ console.warn("Not joined room"); return; }
+  const payload = {
+    date: STATE.date,
+    urgentNumbers: STATE.urgentNumbers,
+    lenPatients: STATE.lenPatients,
+    injPatients: STATE.injPatients,
+    settings: STATE.settings,
+    updatedAt: Date.now(),
+    updatedBy: clientId,
+    opId: opId,
+    lastEvent: eventType
+  };
+  update(ROOM_REF, payload).catch(err=> console.error("update failed", err));
+}
+
+/* ====== Inputs ====== */
+addDual(btnUnlock, "unlock", ()=> initAudio());
+addDual(btnTestSound, "sound:test", ()=> { initAudio(); playNotify("test"); });
+
+addDual(btnNumConfirm, "urgent:add", ()=>{
+  const val = String(inNum.value||"").trim();
+  if(!validateDigits(val,1,3)){ errNum.textContent="1〜3桁の数字を入力してください。"; return; }
+  errNum.textContent="";
+  const norm = STATE.settings.autoPad ? val.padStart(3,"0") : val;
+  const arr = STATE.urgentNumbers.slice(); pushWithCap(arr, norm, APP_CONFIG.maxSlots);
+  publishChange({ urgentNumbers: arr }, "urgent:add");
+});
+addDual(btnNumClear, "urgent:clear", ()=> publishChange({ urgentNumbers: [] }, "urgent:clear"));
+inNum.addEventListener("keydown", e=>{ if(e.key==="Enter"){ btnNumConfirm.click(); } else if(e.key==="Escape"){ inNum.value=""; }});
+inNum.addEventListener("input", ()=>{ inNum.value=inNum.value.replace(/[^\d]/g,"").slice(0,3); errNum.textContent=""; });
+
+addDual(btnLenConfirm, "len:update", ()=>{
+  const cStr=String(inLenCount.value||"").trim();
+  const nStr=String(inLenNum.value||"").trim();
+  const c=Number(cStr);
+  if(!/^\d+$/.test(cStr) || c<0 || c>APP_CONFIG.lenalidomide.max){ errLen.textContent=`残数は0〜${APP_CONFIG.lenalidomide.max}の整数で入力してください。`; return; }
+  if(!validateDigits(nStr,1,3)){ errLen.textContent="外来番号は1〜3桁の数字で入力してください。"; return; }
+  errLen.textContent="";
+  const normNum = normalizeNumber(nStr, {autoPad: STATE.settings.autoPad});
+  const arr = STATE.lenPatients.slice();
+  const i = arr.findIndex(x=>x.number===normNum);
+  if(i>=0) arr[i]={ count:String(c), number:normNum }; else pushWithCap(arr, {count:String(c), number:normNum}, APP_CONFIG.maxSlots);
+  publishChange({ lenPatients: arr }, "len:update");
+});
+addDual(btnLenClear, "len:clear", ()=> publishChange({ lenPatients: [] }, "len:clear"));
+[inLenCount,inLenNum].forEach(el=> el.addEventListener("keydown", e=>{
+  if(e.key==="Enter"){ btnLenConfirm.click(); } else if(e.key==="Escape"){ el.value=""; }
+}));
+inLenCount.addEventListener("input", ()=>{ errLen.textContent=""; });
+inLenNum.addEventListener("input", ()=>{ inLenNum.value=inLenNum.value.replace(/[^\d]/g,"").slice(0,3); errLen.textContent=""; });
+
+let tempPlace="";
+addDual(inInjUp, "inj:placeUp", ()=>{ tempPlace="up"; inInjUp.classList.add("active"); inInjDown.classList.remove("active"); });
+addDual(inInjDown, "inj:placeDown", ()=>{ tempPlace="down"; inInjDown.classList.add("active"); inInjUp.classList.remove("active"); });
+addDual(btnInjConfirm, "inj:update", ()=>{
+  if(tempPlace!=="up" && tempPlace!=="down"){ errInj.textContent="「上」か「下」を選択してください。"; return; }
+  if(!validateDigits(String(inInjNum.value||""),1,3)){ errInj.textContent="外来番号は1〜3桁の数字で入力してください。"; return; }
+  errInj.textContent="";
+  const normNum = normalizeNumber(inInjNum.value, {autoPad: STATE.settings.autoPad});
+  const arr = STATE.injPatients.slice();
+  const i = arr.findIndex(x=>x.number===normNum);
+  if(i>=0) arr[i]={ place: tempPlace, number: normNum }; else pushWithCap(arr, { place: tempPlace, number: normNum }, APP_CONFIG.maxSlots);
+  publishChange({ injPatients: arr }, "inj:update");
+});
+addDual(btnInjClear, "inj:clear", ()=> publishChange({ injPatients: [] }, "inj:clear"));
+inInjNum.addEventListener("keydown", e=>{ if(e.key==="Enter"){ btnInjConfirm.click(); } else if(e.key==="Escape"){ inInjNum.value=""; }});
+inInjNum.addEventListener("input", ()=>{ inInjNum.value=inInjNum.value.replace(/[^\d]/g,"").slice(0,3); errInj.textContent=""; });
+
+// Settings toggles
+$$(".tog").forEach(b=> addDual(b, "tog:"+b.dataset.key+":"+b.dataset.val, ()=>{
+  const k=b.dataset.key; const v=b.dataset.val;
+  const next = JSON.parse(JSON.stringify(STATE.settings));
+  if(v==="true") next[k]=true; else if(v==="false") next[k]=false; else next[k]=v;
+  publishChange({ settings: next }, "settings:"+k);
+}));
+const vol=$("#vol"); vol.value=STATE.settings.volume||100;
+vol.addEventListener("input", ()=>{ const next=Object.assign({}, STATE.settings, {volume: Number(vol.value||100)}); publishChange({ settings: next }, "settings:volume"); });
+
+/* ====== Firebase Join & Sync ====== */
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getDatabase(app);
+
+let ROOM_ID=null, ROOM_REF=null;
+
+function joinRoom(id){
+  if(!id){ alert("room を入力してください"); return; }
+  ROOM_ID = id; ROOM_REF = ref(db, `rooms/${ROOM_ID}/state`);
+  localStorage.setItem("pb_lastRoom", ROOM_ID);
+
+  // 初期読み込み → なければ初期投稿、あれば取り込み
+  get(ROOM_REF).then(snap=>{
+    if(!snap.exists()){
+      publishChange({}, "init");
+    }else{
+      const data = snap.val();
+      if(data.opId) seenOps.add(data.opId);
+      applyRemote(data, /*play*/ false);
+    }
+  });
+
+  // 購読
+  onValue(ROOM_REF, snap=>{
+    if(!snap.exists()) return;
+    const data = snap.val();
+    if(data.opId && seenOps.has(data.opId)) {
+      applyRemote(data, /*play*/ false);
+      return;
+    }
+    if(data.opId) seenOps.add(data.opId);
+    applyRemote(data, /*play*/ true);
+  });
+}
+
+function applyRemote(remote, play){
+  STATE.date = remote.date || STATE.date;
+  STATE.settings = remote.settings || STATE.settings;
+  STATE.urgentNumbers = remote.urgentNumbers || [];
+  STATE.lenPatients   = remote.lenPatients   || [];
+  STATE.injPatients   = remote.injPatients   || [];
+  saveState(STATE);
+  applySettings(); renderCenter();
+  if(play){ initAudio(); playNotify(remote.lastEvent || "remote:update"); }
+}
+
+// Auth then auto-join
+signInAnonymously(auth).catch(console.error);
+onAuthStateChanged(auth, u=>{
+  const qp = new URLSearchParams(location.search);
+  const rid = qp.get("room") || localStorage.getItem("pb_lastRoom") || "";
+  roomInput.value = rid;
+  if(rid) joinRoom(rid);
+});
+addDual(btnJoin, "room:join", ()=> joinRoom(roomInput.value.trim()));
+
+/* ====== Kick off ====== */
+applySettings(); renderCenter(); setTimeout(()=>{ try{ inNum.focus(); }catch(_){} }, 120);
+</script>
+</body>
+</html>
